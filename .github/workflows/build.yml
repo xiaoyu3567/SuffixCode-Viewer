@@ -34,16 +34,49 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build (release)
-        run: cargo build --release --manifest-path egui_txt_viewer/Cargo.toml
+      - name: Build (POSIX release)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cargo build --release --manifest-path egui_txt_viewer/Cargo.toml
 
-      - name: Upload artifacts
+      - name: Cross-compile Windows exe with icon (via build_win.sh)
+        if: matrix.os != 'windows-latest'
+        run: |
+          chmod +x build_win.sh
+          ./build_win.sh
+
+      - name: Build (Windows native)
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd egui_txt_viewer
+          cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Upload executable (macOS/Linux)
+        if: matrix.os != 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: SuffixCode-Viewer-${{ runner.os }}
+          name: SuffixCode-Viewer-${{ matrix.os }}
           path: |
-            egui_txt_viewer/target/release/**
-            egui_txt_viewer/target/x86_64-pc-windows-gnu/release/**
+            egui_txt_viewer/target/release/egui_txt_viewer
+          if-no-files-found: error
+
+      - name: Upload Windows EXE (cross-compiled with icon)
+        if: matrix.os != 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuffixCode-Viewer-Windows-EXE
+          path: |
+            egui_txt_viewer/target/x86_64-pc-windows-gnu/release/SuffixCode Viewer V0.1.exe
+          if-no-files-found: error
+
+      # Optional: Upload Windows native build (may not have icon embedded)
+      - name: Upload Windows native exe (no icon)
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: SuffixCode-Viewer-Windows-MSVC
+          path: |
+            egui_txt_viewer/target/x86_64-pc-windows-msvc/release/egui_txt_viewer.exe
           if-no-files-found: ignore
 
 
