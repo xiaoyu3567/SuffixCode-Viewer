@@ -35,7 +35,14 @@ jobs:
         run: |
           Set-Location $Env:GITHUB_WORKSPACE
           Set-Content -Path app.rc -Value 'IDI_ICON1 ICON "egui_txt_viewer/.icons_win/app.ico"'
-          rc.exe /nologo /fo app.res app.rc
+          $rcPath = Get-ChildItem -Path "${Env:ProgramFiles(x86)}\Windows Kits\10\bin" -Filter rc.exe -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "\\x64\\" } |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $rcPath) {
+            Write-Error "rc.exe not found under Windows Kits. Searched in: ${Env:ProgramFiles(x86)}\\Windows Kits\\10\\bin"
+            exit 1
+          }
+          & "$rcPath" /nologo /fo app.res app.rc
 
       - name: Build release (embed icon)
         shell: pwsh
