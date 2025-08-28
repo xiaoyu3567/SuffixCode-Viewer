@@ -1,0 +1,16 @@
+# Rust/Cargo build outputs
+target/
+**/target/
+
+# OS/editor junk
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.txt
+
+# Logs
+*.log
+
+# Exported files generated at runtime
+export.csv
