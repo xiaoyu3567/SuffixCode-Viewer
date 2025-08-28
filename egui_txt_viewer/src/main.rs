@@ -218,7 +218,7 @@ fn main() -> eframe::Result<()> {
         }
     }
     eframe::run_native(
-        "SuffixCode Viewer V0.1",
+        "SuffixCode Viewer",
         native_options,
         Box::new(|_cc| Box::new(AppState::new())),
     )
@@ -361,6 +361,18 @@ impl eframe::App for AppState {
             // Note: multi-cell selection and copy features were removed per request.
         });
 
+        // Footer: left shows author, right shows build tag
+        egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.with_layout(Layout::left_to_right(egui::Align::Center), |ui| {
+                    ui.label("By: Andrew");
+                });
+                ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label("Build: 2025.9");
+                });
+            });
+        });
+
         // Handle drag-and-drop files (acts like Add)
         // Accepts .txt file paths; other cases are ignored with a warning
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
@@ -490,7 +502,7 @@ impl eframe::App for AppState {
                                 shapes2.push(egui::Shape::circle_filled(center, radius, color));
                                 let (value_label, count) = &group_entries[0];
                                 let pct = (*count as f32 / total) * 100.0;
-                                let text = format!("{}\n{:.1}%", value_label, pct);
+                                let text = format!("{:.1}%", pct);
                                 let galley_lbl = ui.painter().layout(
                                     text,
                                     egui::FontId::monospace(10.0),
@@ -517,7 +529,7 @@ impl eframe::App for AppState {
                                         center.y + mid.sin() * radius * 0.65,
                                     );
                                     let pct = (*count as f32 / total) * 100.0;
-                                    let text = format!("{}\n{:.1}%", value_label, pct);
+                                    let text = format!("{:.1}%", pct);
                                     let galley_lbl = ui.painter().layout(
                                         text,
                                         egui::FontId::monospace(10.0),
