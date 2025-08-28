@@ -58,12 +58,21 @@ jobs:
           if (Test-Path $dest) { Remove-Item -Force $dest }
           Move-Item -Force $out $dest
 
+      - name: Verify build outputs
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -File egui_txt_viewer/target | Where-Object { $_.Extension -eq '.exe' } | ForEach-Object { Write-Host $_.FullName }
+          if (-not (Test-Path "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe")) {
+            Write-Error "Renamed EXE not found."
+            exit 1
+          }
+
       - name: Upload Windows EXE only
         uses: actions/upload-artifact@v4
         with:
           name: SuffixCode-Viewer-Windows-MSVC
           path: |
-            "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe"
+            egui_txt_viewer/target/**/release/SuffixCode Viewer V0.1.exe
           if-no-files-found: error
 
 
