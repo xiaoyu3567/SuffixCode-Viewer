@@ -7,23 +7,19 @@ on:
     branches: [ master, main ]
 
 jobs:
-  build:
-    name: Build (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, macos-latest, windows-latest ]
+  build-windows-msvc:
+    name: Build (windows-msvc with icon)
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - name: Install Rust (stable msvc)
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
+          targets: x86_64-pc-windows-msvc
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -31,52 +27,39 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+            egui_txt_viewer/target
+          key: windows-cargo-${{ hashFiles('egui_txt_viewer/Cargo.lock') }}
 
-      - name: Build (POSIX release)
-        if: matrix.os != 'windows-latest'
+      - name: Prepare icon resource (.rc -> .res)
+        shell: pwsh
         run: |
-          cargo build --release --manifest-path egui_txt_viewer/Cargo.toml
+          Set-Location $Env:GITHUB_WORKSPACE
+          $rc = @" 
+IDI_ICON1 ICON "egui_txt_viewer/.icons_win/app.ico"
+"@
+          Set-Content -Path app.rc -Value $rc -NoNewline
+          & rc.exe /nologo /fo app.res app.rc
 
-      - name: Cross-compile Windows exe with icon (via build_win.sh)
-        if: matrix.os != 'windows-latest'
+      - name: Build release (embed icon)
+        shell: pwsh
         run: |
-          chmod +x build_win.sh
-          ./build_win.sh
+          $Env:RUSTFLAGS = "-Clink-arg=$Env:GITHUB_WORKSPACE\\app.res"
+          cargo build --release --manifest-path egui_txt_viewer/Cargo.toml --target x86_64-pc-windows-msvc
 
-      - name: Build (Windows native)
-        if: matrix.os == 'windows-latest'
+      - name: Rename exe
+        shell: pwsh
         run: |
-          cd egui_txt_viewer
-          cargo build --release --target x86_64-pc-windows-msvc
+          $out = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/egui_txt_viewer.exe"
+          $dest = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe"
+          if (Test-Path $dest) { Remove-Item -Force $dest }
+          Move-Item -Force $out $dest
 
-      - name: Upload executable (macOS/Linux)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: SuffixCode-Viewer-${{ matrix.os }}
-          path: |
-            egui_txt_viewer/target/release/egui_txt_viewer
-          if-no-files-found: error
-
-      - name: Upload Windows EXE (cross-compiled with icon)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: SuffixCode-Viewer-Windows-EXE
-          path: |
-            egui_txt_viewer/target/x86_64-pc-windows-gnu/release/SuffixCode Viewer V0.1.exe
-          if-no-files-found: error
-
-      # Optional: Upload Windows native build (may not have icon embedded)
-      - name: Upload Windows native exe (no icon)
-        if: matrix.os == 'windows-latest'
+      - name: Upload Windows EXE only
         uses: actions/upload-artifact@v4
         with:
           name: SuffixCode-Viewer-Windows-MSVC
           path: |
-            egui_txt_viewer/target/x86_64-pc-windows-msvc/release/egui_txt_viewer.exe
-          if-no-files-found: ignore
+            egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe
+          if-no-files-found: error
 
 
