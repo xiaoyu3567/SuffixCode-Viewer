@@ -34,11 +34,8 @@ jobs:
         shell: pwsh
         run: |
           Set-Location $Env:GITHUB_WORKSPACE
-          $rc = @" 
-IDI_ICON1 ICON "egui_txt_viewer/.icons_win/app.ico"
-"@
-          Set-Content -Path app.rc -Value $rc -NoNewline
-          & rc.exe /nologo /fo app.res app.rc
+          Set-Content -Path app.rc -Value 'IDI_ICON1 ICON "egui_txt_viewer/.icons_win/app.ico"'
+          rc.exe /nologo /fo app.res app.rc
 
       - name: Build release (embed icon)
         shell: pwsh
@@ -59,7 +56,7 @@ IDI_ICON1 ICON "egui_txt_viewer/.icons_win/app.ico"
         with:
           name: SuffixCode-Viewer-Windows-MSVC
           path: |
-            egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe
+            "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe"
           if-no-files-found: error
 
 
