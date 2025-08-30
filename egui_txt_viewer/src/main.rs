@@ -24,11 +24,21 @@ struct AppState {
     display_base: DisplayBase,
     stats_metric: StatsMetric,
     chart_alpha: f32,
+    files_to_remove: Vec<usize>,
+    show_diff_column: bool,
+    show_pie_chart: bool,
 }
 
 impl AppState {
     fn new() -> Self {
-        Self { display_base: DisplayBase::Hex, stats_metric: StatsMetric::Count, chart_alpha: 0.8, ..Default::default() }
+        Self { 
+            display_base: DisplayBase::Hex, 
+            stats_metric: StatsMetric::Count, 
+            chart_alpha: 0.8, 
+            show_diff_column: false, 
+            show_pie_chart: false,
+            ..Default::default() 
+        }
     }
 
     fn recalc_intersection(&mut self) {
@@ -44,7 +54,23 @@ impl AppState {
         }
         self.intersect_addresses = set.into_iter().collect();
     }
+
+    fn remove_files(&mut self) {
+        if !self.files_to_remove.is_empty() {
+            // Sort indices in descending order to avoid shifting issues
+            self.files_to_remove.sort_by(|a, b| b.cmp(a));
+            for &index in &self.files_to_remove {
+                if index < self.files.len() {
+                    self.files.remove(index);
+                }
+            }
+            self.files_to_remove.clear();
+            self.recalc_intersection();
+        }
+    }
 }
+
+
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DisplayBase { Hex, Bin, Dec }
@@ -119,6 +145,29 @@ fn format_hex_prefixed_min2_even(v: u64) -> String {
     if s.len() < 2 { s = format!("{:02x}", v); }
     if s.len() % 2 != 0 { s = format!("0{}", s); }
     format!("0x{}", s)
+}
+
+// Check if data is different across files for a given address
+fn is_data_different(files: &[ParsedFile], addr: u64, display_base: DisplayBase) -> bool {
+    if files.len() <= 1 {
+        return false;
+    }
+    
+    let mut first_value: Option<String> = None;
+    for pf in files {
+        if let Some(raw_data) = pf.address_to_data.get(&addr) {
+            let formatted = format_data_with_base(raw_data, display_base);
+            match &first_value {
+                None => first_value = Some(formatted),
+                Some(first) => {
+                    if first != &formatted {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 // Generate N distinct colors by evenly spacing hues on the HSV circle
@@ -210,7 +259,7 @@ fn parse_txt_file(path: &str) -> anyhow::Result<ParsedFile> {
 
 fn main() -> eframe::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    let mut native_options = eframe::NativeOptions::default();
+    let native_options = eframe::NativeOptions::default();
     #[cfg(target_os = "windows")]
     {
         if let Some(icon) = load_app_icon() {
@@ -251,6 +300,7 @@ impl eframe::App for AppState {
                     if ui.button("Clear").clicked() {
                         self.files.clear();
                         self.intersect_addresses.clear();
+                        self.files_to_remove.clear();
                     }
 
                     if ui.button("Stats").clicked() {
@@ -302,6 +352,8 @@ impl eframe::App for AppState {
                         };
                     }
                     ui.label("Base:");
+                    
+                    ui.checkbox(&mut self.show_diff_column, "Show Diff");
                 });
             });
         });
@@ -320,17 +372,34 @@ impl eframe::App for AppState {
                 return;
             }
 
-            // 构建列：1列地址 + N列数据，并支持水平滚动
+            // 构建列：1列地址 + (可选)1列差异 + N列数据，并支持水平滚动
             egui::ScrollArea::horizontal().show(ui, |ui| {
                 let mut table = TableBuilder::new(ui).striped(true);
-                table = table.column(Column::initial(140.0).resizable(true));
+                table = table.column(Column::initial(140.0).resizable(true)); // Address column
+                if self.show_diff_column { table = table.column(Column::initial(80.0).resizable(true)); } // Diff column
                 for _ in &self.files { table = table.column(Column::initial(120.0).resizable(true)); }
 
                 table
                     .header(24.0, |mut header| {
                         header.col(|ui| { ui.label("Address"); });
-                        for pf in &self.files {
-                            header.col(|ui| { ui.label(&pf.file_name); });
+                        
+                        // Diff column header
+                        if self.show_diff_column {
+                            header.col(|ui| { ui.label("Diff"); });
+                        }
+                        
+                        // File columns with delete button
+                        for (idx, pf) in self.files.iter().enumerate() {
+                            header.col(|ui| { 
+                                ui.horizontal(|ui| {
+                                    ui.label(&pf.file_name);
+                                    
+                                    // Delete button for each column
+                                    if ui.button("🗑️").clicked() {
+                                        self.files_to_remove.push(idx);
+                                    }
+                                });
+                            });
                         }
                     })
                     .body(|mut body| {
@@ -345,6 +414,20 @@ impl eframe::App for AppState {
                                         self.selected_row = Some(row_idx);
                                     }
                                 });
+                                
+                                // Diff column
+                                if self.show_diff_column {
+                                    row.col(|ui| {
+                                        let is_diff = is_data_different(&self.files, *addr, self.display_base);
+                                        let (text, color) = if is_diff {
+                                            ("diff", egui::Color32::RED)
+                                        } else {
+                                            ("same", egui::Color32::from_rgb(0, 0, 0))
+                                        };
+                                        ui.colored_label(color, text);
+                                    });
+                                }
+                                
                                 // Data columns
                                 for pf in &self.files {
                                     row.col(|ui| {
@@ -403,6 +486,9 @@ impl eframe::App for AppState {
             if added_any { self.recalc_intersection(); }
         }
 
+        // Process file removals
+        self.remove_files();
+
         if self.show_stats {
             let main_rect = ctx.input(|i| i.screen_rect());
             egui::Window::new("Statistics")
@@ -415,8 +501,10 @@ impl eframe::App for AppState {
                 ui.label(format!("Total rows: {}", total_rows));
                 ui.label(format!("Total addresses: {}", self.intersect_addresses.len()));
 
-                // Toggle Percent/Count and set color alpha & font scale
+                // Toggle Percent/Count, Pie chart, and set color alpha & font scale
                 ui.horizontal(|ui| {
+                    ui.checkbox(&mut self.show_pie_chart, "Pie Chart");
+                    
                     let label = match self.stats_metric { StatsMetric::Percent => "Bar: Percent", StatsMetric::Count => "Bar: Count" };
                     if ui.button(label).clicked() {
                         self.stats_metric = match self.stats_metric { StatsMetric::Percent => StatsMetric::Count, StatsMetric::Count => StatsMetric::Percent };
@@ -444,8 +532,9 @@ impl eframe::App for AppState {
 
                         // Draw charts side-by-side (bars by count, pie by percentage)
                         ui.horizontal(|ui| {
-                            // Bar chart
-                            let desired = egui::vec2(360.0, 220.0);
+                            // Calculate bar chart width based on pie chart visibility
+                            let bar_width = if self.show_pie_chart { 360.0 } else { ui.available_width() };
+                            let desired = egui::vec2(bar_width, 220.0);
                             let (rect, _resp) = ui.allocate_exact_size(desired, egui::Sense::hover());
                             let mut shapes = Vec::new();
                             let max_count = group_entries.iter().map(|(_, c)| *c as f32).fold(0.0, f32::max).max(1.0);
@@ -489,9 +578,10 @@ impl eframe::App for AppState {
                             }
                             ui.painter().extend(shapes);
 
-                            // Pie chart
-                            let desired2 = egui::vec2(220.0, 220.0);
-                            let (rect2, _resp2) = ui.allocate_exact_size(desired2, egui::Sense::hover());
+                            // Pie chart (only if enabled)
+                            if self.show_pie_chart {
+                                let desired2 = egui::vec2(220.0, 220.0);
+                                let (rect2, _resp2) = ui.allocate_exact_size(desired2, egui::Sense::hover());
                             let center = rect2.center();
                             let radius = rect2.size().min_elem() * 0.45;
                             let mut start_angle: f32 = 0.0;
@@ -500,7 +590,7 @@ impl eframe::App for AppState {
                                 let base = colors[0 % colors.len()];
                                 let color = egui::Color32::from_rgba_unmultiplied(base.r(), base.g(), base.b(), a);
                                 shapes2.push(egui::Shape::circle_filled(center, radius, color));
-                                let (value_label, count) = &group_entries[0];
+                                let (_value_label, count) = &group_entries[0];
                                 let pct = (*count as f32 / total) * 100.0;
                                 let text = format!("{:.1}%", pct);
                                 let galley_lbl = ui.painter().layout(
@@ -511,7 +601,7 @@ impl eframe::App for AppState {
                                 );
                                 shapes2.push(egui::Shape::galley(center, galley_lbl, egui::Color32::BLACK));
                             } else {
-                                for (i, (value_label, count)) in group_entries.iter().enumerate() {
+                                for (i, (_value_label, count)) in group_entries.iter().enumerate() {
                                     let frac = (*count as f32 / total).max(0.0) as f32;
                                     let end_angle = start_angle + (frac * std::f32::consts::TAU).min(std::f32::consts::TAU - 1e-3);
                                     let base = colors[i % colors.len()];
@@ -541,6 +631,7 @@ impl eframe::App for AppState {
                                 }
                             }
                             ui.painter().extend(shapes2);
+                            }
                         });
 
                         // Legend text mapping: Value X (metric): file1, file2 (scrollable)
