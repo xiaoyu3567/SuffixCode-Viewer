@@ -6,6 +6,31 @@ use log::{error, info, warn};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+#[cfg(target_os = "windows")]
+use winapi::um::errhandlingapi::SetUnhandledExceptionFilter;
+#[cfg(target_os = "windows")]
+use winapi::um::debugapi::IsDebuggerPresent;
+#[cfg(target_os = "windows")]
+use std::ptr;
+
+// Windows 异常处理函数
+#[cfg(target_os = "windows")]
+unsafe extern "system" fn exception_handler(_exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS) -> i32 {
+    // 记录错误到文件
+    if let Err(e) = std::fs::write("crash_log.txt", format!("Application crashed at: {:?}", std::time::SystemTime::now())) {
+        eprintln!("Failed to write crash log: {:?}", e);
+    }
+    1 // EXCEPTION_EXECUTE_HANDLER
+}
+
+// 设置 Windows 异常处理
+#[cfg(target_os = "windows")]
+fn setup_windows_exception_handler() {
+    unsafe {
+        SetUnhandledExceptionFilter(Some(exception_handler));
+    }
+}
+
 #[derive(Default, Debug, Clone)]
 struct ParsedFile {
     file_name: String,
@@ -258,7 +283,21 @@ fn parse_txt_file(path: &str) -> anyhow::Result<ParsedFile> {
 }
 
 fn main() -> eframe::Result<()> {
+    // 设置 Windows 异常处理
+    #[cfg(target_os = "windows")]
+    setup_windows_exception_handler();
+    
+    // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    
+    // 设置 panic hook 来捕获未处理的 panic
+    std::panic::set_hook(Box::new(|panic_info| {
+        error!("Application panic: {:?}", panic_info);
+        if let Err(e) = std::fs::write("panic_log.txt", format!("Panic at: {:?}\nInfo: {:?}", std::time::SystemTime::now(), panic_info)) {
+            eprintln!("Failed to write panic log: {:?}", e);
+        }
+    }));
+    
     let native_options = eframe::NativeOptions::default();
     #[cfg(target_os = "windows")]
     {
@@ -266,11 +305,25 @@ fn main() -> eframe::Result<()> {
             native_options.viewport.icon = Some(icon.into());
         }
     }
-    eframe::run_native(
+    
+    // 运行应用程序
+    match eframe::run_native(
         "SuffixCode Viewer",
         native_options,
         Box::new(|_cc| Box::new(AppState::new())),
-    )
+    ) {
+        Ok(_) => {
+            info!("Application exited normally");
+            Ok(())
+        }
+        Err(e) => {
+            error!("Application failed to start: {:?}", e);
+            if let Err(write_err) = std::fs::write("startup_error.txt", format!("Startup error: {:?}", e)) {
+                eprintln!("Failed to write startup error log: {:?}", write_err);
+            }
+            Err(e)
+        }
+    }
 }
 
 impl eframe::App for AppState {

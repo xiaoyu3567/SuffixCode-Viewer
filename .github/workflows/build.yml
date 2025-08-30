@@ -19,7 +19,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          targets: x86_64-pc-windows-msvc
+          targets: x86_64-pc-windows-msvc,i686-pc-windows-msvc
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -44,35 +44,53 @@ jobs:
           }
           & "$rcPath" /nologo /fo app.res app.rc
 
-      - name: Build release (embed icon)
+      - name: Build release 64-bit (embed icon)
         shell: pwsh
         run: |
-          $Env:RUSTFLAGS = "-Clink-arg=$Env:GITHUB_WORKSPACE\\app.res"
+          $Env:RUSTFLAGS = "-Clink-arg=$Env:GITHUB_WORKSPACE\\app.res -Ctarget-feature=+crt-static"
           cargo build --release --manifest-path egui_txt_viewer/Cargo.toml --target x86_64-pc-windows-msvc
 
-      - name: Rename exe
+      - name: Build release 32-bit (embed icon)
         shell: pwsh
         run: |
-          $out = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/egui_txt_viewer.exe"
-          $dest = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe"
-          if (Test-Path $dest) { Remove-Item -Force $dest }
-          Move-Item -Force $out $dest
+          $Env:RUSTFLAGS = "-Clink-arg=$Env:GITHUB_WORKSPACE\\app.res -Ctarget-feature=+crt-static"
+          cargo build --release --manifest-path egui_txt_viewer/Cargo.toml --target i686-pc-windows-msvc
+
+      - name: Rename exe files
+        shell: pwsh
+        run: |
+          # 64-bit version
+          $out64 = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/egui_txt_viewer.exe"
+          $dest64 = "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1 (64-bit).exe"
+          if (Test-Path $dest64) { Remove-Item -Force $dest64 }
+          Move-Item -Force $out64 $dest64
+          
+          # 32-bit version
+          $out32 = "egui_txt_viewer/target/i686-pc-windows-msvc/release/egui_txt_viewer.exe"
+          $dest32 = "egui_txt_viewer/target/i686-pc-windows-msvc/release/SuffixCode Viewer V0.1 (32-bit).exe"
+          if (Test-Path $dest32) { Remove-Item -Force $dest32 }
+          Move-Item -Force $out32 $dest32
 
       - name: Verify build outputs
         shell: pwsh
         run: |
           Get-ChildItem -Recurse -File egui_txt_viewer/target | Where-Object { $_.Extension -eq '.exe' } | ForEach-Object { Write-Host $_.FullName }
-          if (-not (Test-Path "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1.exe")) {
-            Write-Error "Renamed EXE not found."
+          if (-not (Test-Path "egui_txt_viewer/target/x86_64-pc-windows-msvc/release/SuffixCode Viewer V0.1 (64-bit).exe")) {
+            Write-Error "64-bit EXE not found."
+            exit 1
+          }
+          if (-not (Test-Path "egui_txt_viewer/target/i686-pc-windows-msvc/release/SuffixCode Viewer V0.1 (32-bit).exe")) {
+            Write-Error "32-bit EXE not found."
             exit 1
           }
 
-      - name: Upload Windows EXE only
+      - name: Upload Windows EXEs
         uses: actions/upload-artifact@v4
         with:
-          name: SuffixCode-Viewer-Windows-MSVC
+          name: SuffixCode-Viewer-Windows
           path: |
-            egui_txt_viewer/target/**/release/SuffixCode Viewer V0.1.exe
+            egui_txt_viewer/target/**/release/SuffixCode Viewer V0.1 (64-bit).exe
+            egui_txt_viewer/target/**/release/SuffixCode Viewer V0.1 (32-bit).exe
           if-no-files-found: error
 
 
