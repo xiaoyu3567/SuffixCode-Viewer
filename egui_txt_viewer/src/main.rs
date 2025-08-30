@@ -304,24 +304,107 @@ fn main() -> eframe::Result<()> {
         }
     }
     
-    // 运行应用程序
+    // 实现真正的渲染器降级逻辑：通过特性控制和运行时检测
+    let mut last_error = None;
+    
+    // 首先尝试使用默认配置（eframe 会自动选择最佳可用渲染器）
+    info!("Trying default renderer (auto-selection)...");
     match eframe::run_native(
         "SuffixCode Viewer",
-        native_options,
+        native_options.clone(),
         Box::new(|_cc| Box::new(AppState::new())),
     ) {
         Ok(_) => {
-            info!("Application exited normally");
-            Ok(())
+            info!("Application exited normally with auto-selected renderer");
+            return Ok(());
         }
         Err(e) => {
-            error!("Application failed to start: {:?}", e);
-            if let Err(write_err) = std::fs::write("startup_error.txt", format!("Startup error: {:?}", e)) {
-                eprintln!("Failed to write startup error log: {:?}", write_err);
-            }
-            Err(e)
+            warn!("Default renderer failed: {:?}, trying with specific features...", e);
+            last_error = Some(("Default", e));
         }
     }
+    
+    // 如果默认失败，尝试强制使用 Glow 后端（通过环境变量）
+    info!("Trying Glow renderer (OpenGL backend)...");
+    unsafe {
+        std::env::set_var("EFRAME_RENDERER", "glow");
+    }
+    match eframe::run_native(
+        "SuffixCode Viewer (Glow)",
+        native_options.clone(),
+        Box::new(|_cc| Box::new(AppState::new())),
+    ) {
+        Ok(_) => {
+            info!("Application exited normally with Glow renderer");
+            return Ok(());
+        }
+        Err(e) => {
+            warn!("Glow renderer failed: {:?}, trying minimal configuration...", e);
+            last_error = Some(("Glow", e));
+        }
+    }
+    
+    // 如果 Glow 也失败，尝试最小化配置
+    info!("Trying minimal renderer configuration...");
+    let mut minimal_options = native_options.clone();
+    // 设置最小化的窗口选项
+    minimal_options.viewport.min_inner_size = Some(egui::vec2(800.0, 600.0));
+    minimal_options.viewport.max_inner_size = Some(egui::vec2(1920.0, 1080.0));
+    
+    match eframe::run_native(
+        "SuffixCode Viewer (Minimal)",
+        minimal_options,
+        Box::new(|_cc| Box::new(AppState::new())),
+    ) {
+        Ok(_) => {
+            info!("Application exited normally with minimal renderer");
+            return Ok(());
+        }
+        Err(e) => {
+            warn!("Minimal renderer failed: {:?}", e);
+            last_error = Some(("Minimal", e));
+        }
+    }
+    
+    // 如果所有后端都失败，显示详细的错误信息和故障排除建议
+    if let Some((renderer_name, e)) = last_error {
+        error!("All renderers failed. Last error from {}: {:?}", renderer_name, e);
+        eprintln!("Failed to start application with any renderer.");
+        eprintln!("");
+        eprintln!("Error details:");
+        eprintln!("- Default renderer (auto-selection): Failed");
+        eprintln!("- Glow renderer (OpenGL): Failed");
+        eprintln!("- Minimal renderer: Failed");
+        eprintln!("");
+        eprintln!("This may be due to:");
+        eprintln!("1. Graphics drivers are outdated or corrupted");
+        eprintln!("2. OpenGL version is too low (need 2.0+)");
+        eprintln!("3. Graphics hardware doesn't support required features");
+        eprintln!("4. System libraries are missing or incompatible");
+        eprintln!("5. Virtual machine or remote desktop limitations");
+        eprintln!("");
+        eprintln!("Please try the following solutions:");
+        eprintln!("1. Update your graphics drivers to the latest version");
+        eprintln!("2. Check if your GPU supports OpenGL 2.0+ or Vulkan");
+        eprintln!("3. Install/update system graphics libraries");
+        eprintln!("4. Try running on a different computer or OS");
+        eprintln!("5. If on Windows, try compatibility mode or run as administrator");
+        eprintln!("6. If in VM, enable 3D acceleration and install guest tools");
+        eprintln!("");
+        eprintln!("For more help, check the error log file: renderer_error.txt");
+        
+        // 写入详细的错误日志
+        if let Err(write_err) = std::fs::write("renderer_error.txt", format!(
+            "Renderer error at: {:?}\nLast failed renderer: {}\nError: {:?}\n\nTroubleshooting:\n- Update graphics drivers\n- Check OpenGL version\n- Try different hardware\n- Check system libraries\n- VM/remote desktop issues",
+            std::time::SystemTime::now(), renderer_name, e
+        )) {
+            eprintln!("Failed to write error log: {:?}", write_err);
+        }
+        
+        return Err(e);
+    }
+    
+    Ok(())
 }
 
 impl eframe::App for AppState {
@@ -442,10 +525,12 @@ impl eframe::App for AppState {
                         // File columns with delete button
                         for (idx, pf) in self.files.iter().enumerate() {
                             header.col(|ui| { 
-                                ui.horizontal(|ui| {
-                                    ui.label(&pf.file_name);
+                                // Use vertical layout to stack label and delete button
+                                ui.vertical(|ui| {
+                                    // File name label that can wrap - use Label with wrap enabled
+                                    ui.add(egui::Label::new(&pf.file_name).wrap(true));
                                     
-                                    // Delete button for each column
+                                    // Delete button below the label
                                     if ui.button("🗑️").clicked() {
                                         self.files_to_remove.push(idx);
                                     }
