@@ -10,8 +10,6 @@ use std::fs;
 use winapi::um::errhandlingapi::SetUnhandledExceptionFilter;
 #[cfg(target_os = "windows")]
 use winapi::um::debugapi::IsDebuggerPresent;
-#[cfg(target_os = "windows")]
-use std::ptr;
 
 // Windows 异常处理函数
 #[cfg(target_os = "windows")]
@@ -298,7 +296,7 @@ fn main() -> eframe::Result<()> {
         }
     }));
     
-    let native_options = eframe::NativeOptions::default();
+    let mut native_options = eframe::NativeOptions::default();
     #[cfg(target_os = "windows")]
     {
         if let Some(icon) = load_app_icon() {
